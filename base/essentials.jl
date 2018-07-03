@@ -30,14 +30,23 @@ end
     @nospecialize
 
 Applied to a function argument name, hints to the compiler that the method
-should not be specialized for different types of that argument.
+should not be specialized for different types of that argument,
+but instead to use precisely the declared type for each argument.
 This is only a hint for avoiding excess code generation.
-Can be applied to an argument within a formal argument list, or in the
-function body.
-When applied to an argument, the macro must wrap the entire argument
-expression.
+Can be applied to an argument within a formal argument list,
+or in the function body.
+When applied to an argument, the macro must wrap the entire argument expression.
 When used in a function body, the macro must occur in statement position and
 before any code.
+
+When used without arguments, it applies to all arguments of the parent scope.
+In local scope, this means all arguments of the containing function.
+In global (top-level) scope, this means all methods subsequently defined in the current module.
+
+In global scope, it can also be used with boolean `true` or `false`
+to indicate the direction to set the global flag
+(in local scope, these are currently simply ignored).
+
 
 ```julia
 function example_function(@nospecialize x)
@@ -52,21 +61,29 @@ function example_function(x, y, z)
     @nospecialize x y
     ...
 end
+
+@nospecialize true
+f(y) = [x for x in y]
+@nospecialize false
 ```
 """
-macro nospecialize(var, vars...)
-    if isa(var, Expr) && var.head === :(=)
-        var.head = :kw
+macro nospecialize(vars...)
+    if nfields(vars) === 1
+        # in argument position, need to fix `@nospecialize x=v` to `@nospecialize (kw x v)`
+        var = getfield(vars, 1)
+        if isa(var, Expr) && var.head === :(=)
+            var.head = :kw
+        end
     end
-    Expr(:meta, :nospecialize, var, vars...)
+    return Expr(:meta, :nospecialize, vars...)
 end
 
 macro _pure_meta()
-    Expr(:meta, :pure)
+    return Expr(:meta, :pure)
 end
 # another version of inlining that propagates an inbounds context
 macro _propagate_inbounds_meta()
-    Expr(:meta, :inline, :propagate_inbounds)
+    return Expr(:meta, :inline, :propagate_inbounds)
 end
 
 """

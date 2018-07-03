@@ -496,25 +496,27 @@ static void jl_method_set_source(jl_method_t *m, jl_code_info_t *src)
     for (i = 0; i < n; i++) {
         jl_value_t *st = jl_array_ptr_ref(stmts, i);
         if (jl_is_expr(st) && ((jl_expr_t*)st)->head == meta_sym) {
-            if (jl_expr_nargs(st) > 1 && jl_exprarg(st, 0) == (jl_value_t*)nospecialize_sym) {
-                for (size_t j=1; j < jl_expr_nargs(st); j++) {
+            if (jl_expr_nargs(st) >= 1 && jl_exprarg(st, 0) == (jl_value_t*)nospecialize_sym) {
+                size_t j, nargs = jl_expr_nargs(st);
+                if (nargs == 0) // bare `@nospecialize` is special: it prevents specialization on all args
+                    m->nospecialize = -1;
+                for (j = 1; j < nargs; j++) {
                     jl_value_t *aj = jl_exprarg(st, j);
-                    if (jl_is_slot(aj)) {
-                        int sn = (int)jl_slot_number(aj) - 2;
-                        if (sn >= 0) {  // @nospecialize on self is valid but currently ignored
-                            if (sn > (m->nargs - 2)) {
-                                jl_error("@nospecialize annotation applied to a non-argument");
-                            }
-                            else if (sn >= sizeof(m->nospecialize) * 8) {
-                                jl_printf(JL_STDERR,
-                                          "WARNING: @nospecialize annotation only supported on the first %d arguments.\n",
-                                          (int)(sizeof(m->nospecialize) * 8));
-                            }
-                            else {
-                                m->nospecialize |= (1 << sn);
-                            }
-                        }
+                    if (!jl_is_slot(aj))
+                        continue;
+                    int sn = (int)jl_slot_number(aj) - 2;
+                    if (sn < 0) // @nospecialize on self is valid but currently ignored
+                        continue;
+                    if (sn > (m->nargs - 2)) {
+                        jl_error("@nospecialize annotation applied to a non-argument");
                     }
+                    if (sn >= sizeof(m->nospecialize) * 8) {
+                        jl_printf(JL_STDERR,
+                                  "WARNING: @nospecialize annotation only supported on the first %d arguments.\n",
+                                  (int)(sizeof(m->nospecialize) * 8));
+                        continue;
+                    }
+                    m->nospecialize |= (1 << sn);
                 }
                 st = jl_nothing;
             }
@@ -574,7 +576,7 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(jl_module_t *module)
     m->file = empty_sym;
     m->line = 0;
     m->called = 0xff;
-    m->nospecialize = 0;
+    m->nospecialize = module->nospecialize;
     m->invokes.unknown = NULL;
     m->isva = 0;
     m->nargs = 0;
